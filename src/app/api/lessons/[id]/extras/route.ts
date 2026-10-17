@@ -53,7 +53,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         if (up.error) throw new Error(up.error.message);
         value = { url: sb.storage.from("lesson-images").getPublicUrl(path).data.publicUrl };
       }
-      await recordGeneration({ ...who, lesson_id: id, kind: "image", theme: lesson.theme, language_code: lesson.language_code });
+      const failed = "failed" in img ? img.failed : undefined;
+      if (failed) console.error("image drawing failed, showing the reference picture", failed);
+      await recordGeneration({ ...who, lesson_id: id, kind: "image", theme: lesson.theme, language_code: lesson.language_code, ok: !failed, error: failed ?? null });
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

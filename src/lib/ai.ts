@@ -124,8 +124,9 @@ function decodeEntities(s: string) {
 
 // Draws the lesson scene with Gemini, passing the character references.
 // Lesson illustration. Uses OpenAI images when OPENAI_API_KEY is set, Gemini when
-// GEMINI_API_KEY is set, and otherwise falls back to the closest reference picture.
-export type DrawnImage = { bytes: Buffer; mime: string } | { url: string };
+// GEMINI_API_KEY is set, and otherwise (or when drawing fails) falls back to the
+// closest reference picture.
+export type DrawnImage = { bytes: Buffer; mime: string } | { url: string; failed?: string };
 
 export async function drawImage(p: { scene: string; characterIds: string[]; origin: string }): Promise<DrawnImage> {
   const chars = CHARACTERS.filter((c) => p.characterIds.includes(c.id)).slice(0, 3);
@@ -136,16 +137,20 @@ export async function drawImage(p: { scene: string; characterIds: string[]; orig
     (chars.length ? `Characters in the scene: ${chars.map((c) => c.appearance).join("; ")}.` : "") +
     "\nWide 4:3 composition.";
 
-  if (!process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY) {
-    return { url: `${p.origin}/characters/${files[0]}` };
-  }
+  const fallback = `${p.origin}/characters/${files[0]}`;
+  if (!process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY) return { url: fallback };
 
   const refs: { name: string; bytes: Buffer }[] = [];
   for (const f of files) {
     const res = await fetch(`${p.origin}/characters/${f}`);
     if (res.ok) refs.push({ name: f, bytes: Buffer.from(await res.arrayBuffer()) });
   }
-  return process.env.OPENAI_API_KEY ? drawWithOpenAI(prompt, refs) : drawWithGemini(prompt, refs);
+  try {
+    return process.env.OPENAI_API_KEY ? await drawWithOpenAI(prompt, refs) : await drawWithGemini(prompt, refs);
+  } catch (e) {
+    // Out of credit or a provider outage shouldn't leave the lesson without a picture.
+    return { url: fallback, failed: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 async function drawWithOpenAI(prompt: string, refs: { name: string; bytes: Buffer }[]): Promise<DrawnImage> {
