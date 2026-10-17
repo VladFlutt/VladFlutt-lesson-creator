@@ -3,7 +3,7 @@ import { loadCatalog, getUi, grammarLabel } from "@/lib/catalog";
 import { checkQuota, findRestrictedWord, ipHash, recordGeneration } from "@/lib/usage";
 import { configError, guestIdFromCookie, json } from "@/lib/access";
 import { generateJson } from "@/lib/ai";
-import { lessonPrompt, lessonSchema, systemPrompt, TEXT_BLOCKS, type LessonContent } from "@/lib/lesson";
+import { lessonPrompt, lessonSchema, splitBlocks, systemPrompt, TEXT_BLOCKS, type LessonContent } from "@/lib/lesson";
 
 export const maxDuration = 300;
 
@@ -57,20 +57,26 @@ export async function POST(req: Request) {
   const who = { user_id: viewer.user?.id ?? null, guest_id: viewer.user ? null : guestId, ip_hash: ip };
 
   try {
-    const { data: content, usage } = await generateJson<LessonContent>(
+    const base = { theme, languageName: language.name, interfaceName: interfaceLang?.name || "Greek", level, minutes: duration, grammarFocus };
+    const customKeys = custom.map((c) => c.key);
+    const [first, second] = splitBlocks(blocks, custom.length > 0);
+    const part1 = await generateJson<LessonContent>(
       systemPrompt(),
-      lessonPrompt({
-        theme,
-        languageName: language.name,
-        interfaceName: interfaceLang?.name || "Greek",
-        level,
-        minutes: duration,
-        blocks,
-        custom,
-        grammarFocus,
-      }),
-      lessonSchema(blocks, custom.map((c) => c.key))
+      lessonPrompt({ ...base, blocks: first, custom: second.length ? [] : custom, later: second }),
+      lessonSchema(first, second.length ? [] : customKeys)
     );
+    let content = part1.data;
+    const usage = { ...part1.usage };
+    if (second.length) {
+      const part2 = await generateJson<Partial<LessonContent>>(
+        systemPrompt(),
+        lessonPrompt({ ...base, blocks: second, custom, soFar: part1.data }),
+        lessonSchema(second, customKeys, false)
+      );
+      content = { ...content, ...part2.data };
+      usage.input_tokens += part2.usage.input_tokens;
+      usage.output_tokens += part2.usage.output_tokens;
+    }
 
     const { data: lesson, error } = await supabaseAdmin()
       .from("lessons")

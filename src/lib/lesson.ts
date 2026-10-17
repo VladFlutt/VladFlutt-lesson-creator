@@ -124,8 +124,22 @@ export const BLOCK_SCHEMAS: Record<string, unknown> = {
   homework: obj({ tasks: strArr }),
 };
 
-export function lessonSchema(blocks: string[], customKeys: string[]) {
-  const props: Record<string, unknown> = {
+// Structured outputs reject schemas that compile too large, so a lesson with
+// many blocks is written in two calls: the content first, then the practice
+// blocks with the content as context.
+const PRACTICE_BLOCKS = ["exercises", "summary", "homework"];
+const SINGLE_CALL_MAX = 6;
+
+export function splitBlocks(blocks: string[], hasCustom: boolean): [string[], string[]] {
+  if (blocks.length + (hasCustom ? 1 : 0) <= SINGLE_CALL_MAX) return [blocks, []];
+  const first = blocks.filter((b) => !PRACTICE_BLOCKS.includes(b));
+  const second = blocks.filter((b) => PRACTICE_BLOCKS.includes(b));
+  return first.length ? [first, second] : [blocks, []];
+}
+
+export function lessonSchema(blocks: string[], customKeys: string[], withMeta = true) {
+  const props: Record<string, unknown> = {};
+  if (withMeta) Object.assign(props, {
     title: str,
     characters: { type: "array", items: { type: "string", enum: CHARACTERS.map((c) => c.id) } },
     timing: { type: "array", items: obj({ block: str, minutes: { type: "integer" } }) },
@@ -133,7 +147,7 @@ export function lessonSchema(blocks: string[], customKeys: string[]) {
     imagePrompt: str,
     videoQuery: str,
     newsQuery: str,
-  };
+  });
   for (const b of blocks) if (BLOCK_SCHEMAS[b]) props[b] = BLOCK_SCHEMAS[b];
   if (customKeys.length) {
     props.custom = { type: "array", items: obj({ key: { type: "string", enum: customKeys }, title: str, body: str }) };
@@ -192,26 +206,44 @@ export function lessonPrompt(p: {
   blocks: string[];
   custom: { key: string; description: string }[];
   grammarFocus?: string[];
+  // Blocks a second call will write; they still get a slot in the timing plan.
+  later?: string[];
+  // The lesson written so far; when given, only the listed blocks are written.
+  soFar?: unknown;
 }) {
   const guide = p.blocks.map((b) => BLOCK_GUIDE[b]).filter(Boolean);
   for (const c of p.custom) guide.push(`custom (key "${c.key}"): ${c.description}. Write it with a short title and body.`);
-  return [
+  const header = [
     `Create a ${p.minutes}-minute lesson.`,
     `Theme: "${p.theme}"`,
     `LESSON language (what the student learns): ${p.languageName}`,
     `INTERFACE language (the tutor's and student's own language, used for translations and instructions): ${p.interfaceName}`,
     `Student level: ${p.level}`,
     "",
+    ...(p.grammarFocus?.length ? ["GRAMMAR FOCUS chosen by the tutor: " + p.grammarFocus.join("; "), ""] : []),
+  ];
+  if (p.soFar) {
+    return [
+      ...header,
+      "The first part of this lesson is already written (JSON below). Keep consistent with it: reuse its characters, vocabulary, grammar and story.",
+      JSON.stringify(p.soFar),
+      "",
+      "Now write only these blocks:",
+      ...guide.map((g) => "- " + g),
+    ].join("\n");
+  }
+  return [
+    ...header,
     "Always fill these fields:",
     "- title: a short lesson title in the LESSON language.",
     "- characters: pick 1-3 recurring characters from the list below who fit the theme (they appear in the image and the dialogue).",
-    "- timing: a plan that splits the full lesson time across the blocks below, in order (block names in the INTERFACE language); minutes must add up to " + p.minutes + ".",
+    "- timing: a plan that splits the full lesson time across the blocks below, in order (block names in the INTERFACE language); minutes must add up to " + p.minutes + "." +
+      (p.later?.length ? ` Also give time to these blocks, which are written separately after the ones below: ${p.later.join(", ")}.` : ""),
     "- tutorTips: 3-5 practical tips for the tutor (INTERFACE language) on pacing, likely student difficulties, error correction and keeping the student motivated.",
     "- imagePrompt: one English sentence describing a single scene for the lesson illustration with the chosen characters (refer to them by appearance, not id).",
     "- videoQuery: a YouTube search query in the LESSON language that finds a short video on the theme spoken in the LESSON language (native content or lessons of that language, never videos that teach another language).",
     "- newsQuery: a news search query in the LESSON language for recent articles on the theme.",
     "",
-    ...(p.grammarFocus?.length ? ["GRAMMAR FOCUS chosen by the tutor: " + p.grammarFocus.join("; "), ""] : []),
     "Blocks to write:",
     ...guide.map((g) => "- " + g),
     "",

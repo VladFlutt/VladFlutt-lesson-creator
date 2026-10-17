@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
-import { BLOCK_GUIDE, BLOCK_SCHEMAS, EXERCISE_TYPES, EXTRA_BLOCKS, TEXT_BLOCKS, lessonPrompt, lessonSchema } from "@/lib/lesson";
+import { BLOCK_GUIDE, BLOCK_SCHEMAS, EXERCISE_TYPES, EXTRA_BLOCKS, TEXT_BLOCKS, lessonPrompt, lessonSchema, splitBlocks } from "@/lib/lesson";
 import { CHARACTERS } from "@/lib/characters";
 
 type Node = { type?: string; properties?: Record<string, Node>; required?: string[]; additionalProperties?: boolean; items?: Node };
@@ -33,6 +33,35 @@ describe("lessonSchema", () => {
     const s = lessonSchema([], ["k1", "k2"]) as { properties: Record<string, { items: { enum?: string[]; properties?: Record<string, { enum?: string[] }> } }> };
     expect(s.properties.characters.items.enum).toEqual(CHARACTERS.map((c) => c.id));
     expect(s.properties.custom.items.properties!.key.enum).toEqual(["k1", "k2"]);
+  });
+});
+
+describe("splitBlocks", () => {
+  it("keeps small lessons in one call", () => {
+    expect(splitBlocks(["cards", "grammar", "exercises"], false)).toEqual([["cards", "grammar", "exercises"], []]);
+  });
+
+  it("writes practice blocks in a second call for big lessons", () => {
+    const [first, second] = splitBlocks([...TEXT_BLOCKS], true);
+    expect(second).toEqual(["exercises", "summary", "homework"]);
+    expect(first).toEqual(["intro", "warmup", "cards", "grammar", "text", "translation", "dialogue"]);
+  });
+
+  // The full schema before the grammar block was accepted; adding grammar to it was not.
+  it("keeps every call's schema smaller than the largest schema the API accepted", () => {
+    const accepted = JSON.stringify(lessonSchema(TEXT_BLOCKS.filter((b) => b !== "grammar"), [])).length;
+    const [first, second] = splitBlocks([...TEXT_BLOCKS], true);
+    expect(JSON.stringify(lessonSchema(first, [])).length).toBeLessThan(accepted);
+    expect(JSON.stringify(lessonSchema(second, ["custom1"], false)).length).toBeLessThan(accepted);
+  });
+
+  it("asks the second call for only its blocks, with the first part as context", () => {
+    const p = lessonPrompt({ theme: "x", languageName: "Greek", interfaceName: "Russian", level: "A2", minutes: 45, blocks: ["exercises"], custom: [], soFar: { title: "Στο χωριό" } });
+    expect(p).toContain("Στο χωριό");
+    expect(p).toContain(BLOCK_GUIDE.exercises);
+    expect(p).not.toContain("Always fill these fields");
+    const s = lessonSchema(["exercises"], [], false) as { properties: Record<string, unknown> };
+    expect(Object.keys(s.properties)).toEqual(["exercises"]);
   });
 });
 
