@@ -3,7 +3,17 @@ import { CHARACTERS, STYLE } from "./characters";
 import type { Video } from "./lesson";
 import { normalizeUrl, pickArticles, pickVideo, type VideoCandidate } from "./news";
 
-const MODEL = () => process.env.ANTHROPIC_MODEL || "claude-opus-5-5";
+// Lessons: Sonnet at low effort keeps a full lesson around $0.10. News link picking
+// is simple work, so it runs on Haiku. All three can be changed in Vercel settings.
+const LESSON_MODEL = () => process.env.LESSON_MODEL || "claude-sonnet-5-5";
+const LESSON_EFFORT = () => process.env.LESSON_EFFORT || "low";
+const NEWS_MODEL = () => process.env.NEWS_MODEL || "claude-haiku-5-5";
+
+// The server-side refusal fallback exists only for these models.
+const withFallback = (model: string) =>
+  /^claude-(opus-5-5|sonnet-5-5|fable-5-1|opus-5)$/.test(model)
+    ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" }
+    : {};
 
 let client: Anthropic | null = null;
 const anthropic = () => (client ??= new Anthropic());
@@ -24,14 +34,13 @@ function textOf(content: Array<{ type: string; text?: string }>) {
 // One structured-output call. Streams so long lessons don't hit HTTP timeouts.
 export async function generateJson<T>(system: string, prompt: string, schema: unknown, maxTokens = 32000) {
   const params = {
-    model: MODEL(),
+    model: LESSON_MODEL(),
     max_tokens: maxTokens,
     system,
     messages: [{ role: "user", content: prompt }],
     thinking: { type: "adaptive" },
-    output_config: { effort: "medium", format: { type: "json_schema", schema } },
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
+    output_config: { effort: LESSON_EFFORT(), format: { type: "json_schema", schema } },
+    ...withFallback(LESSON_MODEL()),
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const stream = anthropic().beta.messages.stream(params as any);
@@ -65,13 +74,13 @@ export async function findNews(p: { query: string; theme: string; languageName: 
   let finalText = "";
   for (let i = 0; i < 4; i++) {
     const params = {
-      model: MODEL(),
+      model: NEWS_MODEL(),
       max_tokens: 8000,
       messages,
-      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }],
+      // Haiku has only the basic search tool; newer models get dynamic filtering.
+      tools: [{ type: NEWS_MODEL().includes("haiku") ? "web_search_20250305" : "web_search_20260209", name: "web_search", max_uses: 5 }],
       output_config: { effort: "low" },
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
+      ...withFallback(NEWS_MODEL()),
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const msg: any = await anthropic().beta.messages.create(params as any);
