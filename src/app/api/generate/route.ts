@@ -3,7 +3,7 @@ import { loadCatalog, getUi, grammarLabel } from "@/lib/catalog";
 import { checkQuota, findRestrictedWord, ipHash, recordGeneration } from "@/lib/usage";
 import { configError, guestIdFromCookie, json } from "@/lib/access";
 import { generateJson } from "@/lib/ai";
-import { lessonPrompt, lessonSchema, splitBlocks, systemPrompt, TEXT_BLOCKS, type LessonContent } from "@/lib/lesson";
+import { blockPrompt, blockSchema, isEmptyBlock, lessonPrompt, lessonSchema, splitBlocks, systemPrompt, TEXT_BLOCKS, type LessonContent } from "@/lib/lesson";
 
 export const maxDuration = 300;
 
@@ -77,6 +77,20 @@ export async function POST(req: Request) {
       usage.input_tokens += part2.usage.input_tokens;
       usage.output_tokens += part2.usage.output_tokens;
     }
+    if (grammarFocus.length) content = { ...content, grammarFocus };
+
+    // Rarely a block comes back without its content; ask for it once more.
+    for (const block of blocks.filter((b) => isEmptyBlock(content[b as keyof LessonContent]))) {
+      const retry = await generateJson<Record<string, unknown>>(
+        systemPrompt(),
+        blockPrompt({ ...base, content, block, fresh: false }),
+        blockSchema(block),
+        16000
+      );
+      content = { ...content, [block]: retry.data[block] };
+      usage.input_tokens += retry.usage.input_tokens;
+      usage.output_tokens += retry.usage.output_tokens;
+    }
 
     const { data: lesson, error } = await supabaseAdmin()
       .from("lessons")
@@ -88,7 +102,7 @@ export async function POST(req: Request) {
         level,
         duration,
         instruments: keys,
-        content: grammarFocus.length ? { ...content, grammarFocus } : content,
+        content,
       })
       .select("*")
       .single();

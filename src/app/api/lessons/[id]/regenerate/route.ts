@@ -3,7 +3,7 @@ import { loadCatalog } from "@/lib/catalog";
 import { ipHash, recordGeneration } from "@/lib/usage";
 import { configError, guestIdFromCookie, json, loadOwnLesson } from "@/lib/access";
 import { generateJson } from "@/lib/ai";
-import { BLOCK_GUIDE, BLOCK_SCHEMAS, systemPrompt } from "@/lib/lesson";
+import { BLOCK_SCHEMAS, blockPrompt, blockSchema, systemPrompt } from "@/lib/lesson";
 import { supabaseAdmin } from "@/lib/supabase-server";
 
 export const maxDuration = 300;
@@ -24,19 +24,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { languages } = await loadCatalog(true);
   const lang = languages.find((l) => l.code === lesson.language_code);
   const ui = languages.find((l) => l.code === lesson.interface_code);
-  const { image, news, video, ...rest } = lesson.content;
-  void image; void news; void video;
-
-  const schema = { type: "object", properties: { [block]: BLOCK_SCHEMAS[block] }, required: [block], additionalProperties: false };
-  const prompt = [
-    `Here is an existing ${lesson.duration}-minute ${lesson.level} lesson on "${lesson.theme}".`,
-    `LESSON language: ${lang?.name}. INTERFACE language: ${ui?.name}.`,
-    JSON.stringify(rest),
-    ...(rest.grammarFocus?.length ? ["", "GRAMMAR FOCUS chosen by the tutor: " + rest.grammarFocus.join("; ")] : []),
-    "",
-    `Write a fresh, different version of only this block, consistent with the rest of the lesson:`,
-    BLOCK_GUIDE[block],
-  ].join("\n");
+  const schema = blockSchema(block);
+  const prompt = blockPrompt({
+    theme: lesson.theme,
+    level: lesson.level,
+    minutes: lesson.duration,
+    languageName: lang?.name || "Greek",
+    interfaceName: ui?.name || "Greek",
+    content: lesson.content,
+    block,
+    fresh: true,
+  });
 
   const guestId = await guestIdFromCookie();
   const who = { user_id: viewer.user?.id ?? null, guest_id: viewer.user ? null : guestId, ip_hash: ipHash(req.headers) };

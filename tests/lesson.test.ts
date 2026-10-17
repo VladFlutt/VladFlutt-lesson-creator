@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
-import { BLOCK_GUIDE, BLOCK_SCHEMAS, EXERCISE_TYPES, EXTRA_BLOCKS, TEXT_BLOCKS, lessonPrompt, lessonSchema, splitBlocks } from "@/lib/lesson";
+import { BLOCK_GUIDE, BLOCK_SCHEMAS, EXERCISE_TYPES, EXTRA_BLOCKS, TEXT_BLOCKS, isEmptyBlock, lessonPrompt, lessonSchema, splitBlocks } from "@/lib/lesson";
 import { CHARACTERS } from "@/lib/characters";
 
 type Node = { type?: string; properties?: Record<string, Node>; required?: string[]; additionalProperties?: boolean; items?: Node };
@@ -62,6 +62,16 @@ describe("splitBlocks", () => {
     expect(p).not.toContain("Always fill these fields");
     const s = lessonSchema(["exercises"], [], false) as { properties: Record<string, unknown> };
     expect(Object.keys(s.properties)).toEqual(["exercises"]);
+  });
+});
+
+describe("isEmptyBlock", () => {
+  it("spots blocks without their content", () => {
+    expect(isEmptyBlock(undefined)).toBe(true);
+    expect(isEmptyBlock({ topics: [] })).toBe(true);
+    expect(isEmptyBlock([])).toBe(true);
+    expect(isEmptyBlock({ topics: [{ title: "x" }] })).toBe(false);
+    expect(isEmptyBlock({ title: "t", body: "b" })).toBe(false);
   });
 });
 

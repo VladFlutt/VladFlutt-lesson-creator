@@ -163,7 +163,7 @@ export const BLOCK_GUIDE: Record<string, string> = {
   translation: "translation: a faithful translation of the text into the INTERFACE language.",
   grammar:
     "grammar: explain the grammar topics listed under GRAMMAR FOCUS (if none are listed, choose the 1-2 most useful topics for this level and theme). " +
-    "One entry per topic: title in the INTERFACE language with the LESSON-language term in brackets; a clear, short explanation in the INTERFACE language; " +
+    "topics must never be empty. One entry per topic: title in the INTERFACE language with the LESSON-language term in brackets; a clear, short explanation in the INTERFACE language; " +
     "forms = the key forms or a mini-table as rows (form in the LESSON language, note with its meaning or usage in the INTERFACE language); " +
     "3-5 examples in the LESSON language built on the lesson theme and vocabulary, each with a translation; commonMistake = one typical learner error and how to avoid it.",
   exercises:
@@ -191,6 +191,45 @@ export function systemPrompt() {
     "Lesson-language content must be accurate, natural and idiomatic, with correct accents and spelling.",
     "Never include unsafe, political-agitation or adult content; keep examples suitable for teenagers and adults.",
   ].join(" ");
+}
+
+// Prompt that rewrites one block of an existing lesson, used to regenerate a
+// block on request and to fill a block the model left empty.
+export function blockPrompt(p: {
+  theme: string;
+  level: string;
+  minutes: number;
+  languageName: string;
+  interfaceName: string;
+  content: Partial<LessonContent>;
+  block: string;
+  fresh: boolean;
+}) {
+  const { image, news, video, ...rest } = p.content;
+  void image; void news; void video;
+  return [
+    `Here is an existing ${p.minutes}-minute ${p.level} lesson on "${p.theme}".`,
+    `LESSON language: ${p.languageName}. INTERFACE language: ${p.interfaceName}.`,
+    JSON.stringify(rest),
+    ...(rest.grammarFocus?.length ? ["", "GRAMMAR FOCUS chosen by the tutor: " + rest.grammarFocus.join("; ")] : []),
+    "",
+    p.fresh
+      ? "Write a fresh, different version of only this block, consistent with the rest of the lesson:"
+      : "Write only this block, consistent with the rest of the lesson. It must not be empty:",
+    BLOCK_GUIDE[p.block],
+  ].join("\n");
+}
+
+// A block the model returned without its main list (e.g. no grammar topics).
+export function isEmptyBlock(v: unknown) {
+  if (v === undefined || v === null) return true;
+  if (Array.isArray(v)) return v.length === 0;
+  if (typeof v === "object") return Object.values(v as Record<string, unknown>).some((x) => Array.isArray(x) && x.length === 0);
+  return false;
+}
+
+export function blockSchema(block: string) {
+  return obj({ [block]: BLOCK_SCHEMAS[block] });
 }
 
 export function characterList() {
