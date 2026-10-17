@@ -141,31 +141,59 @@ function decodeEntities(s: string) {
 }
 
 // Draws the lesson scene with Gemini, passing the character references.
-export async function drawImage(p: { scene: string; characterIds: string[]; origin: string }) {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("GEMINI_API_KEY is not set");
+// Lesson illustration. Uses OpenAI images when OPENAI_API_KEY is set, Gemini when
+// GEMINI_API_KEY is set, and otherwise falls back to the closest reference picture.
+export type DrawnImage = { bytes: Buffer; mime: string } | { url: string };
+
+export async function drawImage(p: { scene: string; characterIds: string[]; origin: string }): Promise<DrawnImage> {
   const chars = CHARACTERS.filter((c) => p.characterIds.includes(c.id)).slice(0, 3);
   const files = Array.from(new Set(chars.flatMap((c) => c.refs))).slice(0, 4);
   if (!files.length) files.push("friends-alex-nikos.jpg");
+  const prompt =
+    `${STYLE}\nScene: ${p.scene}\n` +
+    (chars.length ? `Characters in the scene: ${chars.map((c) => c.appearance).join("; ")}.` : "") +
+    "\nWide 4:3 composition.";
 
-  const parts: unknown[] = [];
+  if (!process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY) {
+    return { url: `${p.origin}/characters/${files[0]}` };
+  }
+
+  const refs: { name: string; bytes: Buffer }[] = [];
   for (const f of files) {
     const res = await fetch(`${p.origin}/characters/${f}`);
-    if (!res.ok) continue;
-    const data = Buffer.from(await res.arrayBuffer()).toString("base64");
-    parts.push({ inlineData: { mimeType: "image/jpeg", data } });
+    if (res.ok) refs.push({ name: f, bytes: Buffer.from(await res.arrayBuffer()) });
   }
-  parts.push({
-    text:
-      `${STYLE}\nScene: ${p.scene}\n` +
-      (chars.length ? `Characters in the scene: ${chars.map((c) => c.appearance).join("; ")}.` : "") +
-      "\nWide 4:3 composition.",
+  return process.env.OPENAI_API_KEY ? drawWithOpenAI(prompt, refs) : drawWithGemini(prompt, refs);
+}
+
+async function drawWithOpenAI(prompt: string, refs: { name: string; bytes: Buffer }[]): Promise<DrawnImage> {
+  const form = new FormData();
+  form.append("model", process.env.OPENAI_IMAGE_MODEL || "gpt-image-1");
+  form.append("prompt", prompt);
+  form.append("size", "1536x1024");
+  form.append("quality", process.env.OPENAI_IMAGE_QUALITY || "medium");
+  for (const r of refs) form.append("image[]", new Blob([new Uint8Array(r.bytes)], { type: "image/jpeg" }), r.name);
+
+  const res = await fetch("https://api.openai.com/v1/images/edits", {
+    method: "POST",
+    headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+    body: form,
   });
+  if (!res.ok) throw new Error(`Image generation failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  const b64 = data.data?.[0]?.b64_json;
+  if (!b64) throw new Error("Image model returned no image");
+  return { bytes: Buffer.from(b64, "base64"), mime: "image/png" };
+}
+
+async function drawWithGemini(prompt: string, refs: { name: string; bytes: Buffer }[]): Promise<DrawnImage> {
+  const parts: unknown[] = refs.map((r) => ({ inlineData: { mimeType: "image/jpeg", data: r.bytes.toString("base64") } }));
+  parts.push({ text: prompt });
 
   const model = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-goog-api-key": key },
+    headers: { "content-type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY! },
     body: JSON.stringify({
       contents: [{ role: "user", parts }],
       generationConfig: { responseModalities: ["TEXT", "IMAGE"] },

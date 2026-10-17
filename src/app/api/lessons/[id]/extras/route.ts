@@ -41,12 +41,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     } else {
       const origin = new URL(req.url).origin;
       const img = await drawImage({ scene: c.imagePrompt || lesson.theme, characterIds: c.characters || [], origin });
-      const ext = img.mime.includes("jpeg") ? "jpg" : "png";
-      const path = `${id}/${Date.now()}.${ext}`;
-      const sb = supabaseAdmin();
-      const up = await sb.storage.from("lesson-images").upload(path, img.bytes, { contentType: img.mime, upsert: true });
-      if (up.error) throw new Error(up.error.message);
-      value = { url: sb.storage.from("lesson-images").getPublicUrl(path).data.publicUrl };
+      if ("url" in img) {
+        value = { url: img.url };
+      } else {
+        const ext = img.mime.includes("jpeg") ? "jpg" : "png";
+        const path = `${id}/${Date.now()}.${ext}`;
+        const sb = supabaseAdmin();
+        const up = await sb.storage.from("lesson-images").upload(path, img.bytes, { contentType: img.mime, upsert: true });
+        if (up.error) throw new Error(up.error.message);
+        value = { url: sb.storage.from("lesson-images").getPublicUrl(path).data.publicUrl };
+      }
       await recordGeneration({ ...who, lesson_id: id, kind: "image", theme: lesson.theme, language_code: lesson.language_code });
     }
   } catch (e) {

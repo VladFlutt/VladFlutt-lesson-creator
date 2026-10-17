@@ -1,7 +1,7 @@
 # LessonCreator
 
 Methodical lesson builder for private language tutors. Next.js on Vercel, Supabase for auth and data,
-Claude for lesson text and news search, Gemini for the lesson image, YouTube Data API for the video.
+Claude for lesson text and news search, OpenAI images (or Gemini) for the lesson image, falling back to the character references without a key, YouTube Data API for the video.
 
 ## Setup
 
