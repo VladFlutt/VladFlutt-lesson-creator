@@ -188,3 +188,4 @@ $$;
 
 revoke execute on function set_lesson_block(uuid, text, jsonb) from public, anon, authenticated;
 revoke execute on function add_time_spent(uuid, int) from public, anon, authenticated;
+revoke execute on function handle_new_user() from public, anon, authenticated;
