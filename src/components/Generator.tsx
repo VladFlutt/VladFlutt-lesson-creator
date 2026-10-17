@@ -51,8 +51,8 @@ export function Generator(props: {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ languageCode, theme, level, duration, instruments: picked, grammar: picked.includes("grammar") ? grammar : [] }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: "network" }));
+      if (!res.ok || data.error || !data.lesson) {
         const messages: Record<string, string> = {
           guest_limit: dict.guestLimitReached,
           limit: dict.limitReached,

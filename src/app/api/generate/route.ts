@@ -1,7 +1,7 @@
 import { getViewer, supabaseAdmin } from "@/lib/supabase-server";
 import { loadCatalog, getUi, grammarLabel } from "@/lib/catalog";
 import { checkQuota, findRestrictedWord, ipHash, recordGeneration } from "@/lib/usage";
-import { configError, guestIdFromCookie, json } from "@/lib/access";
+import { configError, guestIdFromCookie, json, streamJson } from "@/lib/access";
 import { generateJson } from "@/lib/ai";
 import { blockPrompt, blockSchema, isEmptyBlock, lessonPrompt, lessonSchema, splitBlocks, systemPrompt, TEXT_BLOCKS, type LessonContent } from "@/lib/lesson";
 
@@ -56,63 +56,65 @@ export async function POST(req: Request) {
   const interfaceLang = catalog.languages.find((l) => l.code === ui.code);
   const who = { user_id: viewer.user?.id ?? null, guest_id: viewer.user ? null : guestId, ip_hash: ip };
 
-  try {
-    const base = { theme, languageName: language.name, interfaceName: interfaceLang?.name || "Greek", level, minutes: duration, grammarFocus };
-    const customKeys = custom.map((c) => c.key);
-    const [first, second] = splitBlocks(blocks, custom.length > 0);
-    const part1 = await generateJson<LessonContent>(
-      systemPrompt(),
-      lessonPrompt({ ...base, blocks: first, custom: second.length ? [] : custom, later: second }),
-      lessonSchema(first, second.length ? [] : customKeys)
-    );
-    let content = part1.data;
-    const usage = { ...part1.usage };
-    if (second.length) {
-      const part2 = await generateJson<Partial<LessonContent>>(
+  return streamJson(async () => {
+    try {
+      const base = { theme, languageName: language.name, interfaceName: interfaceLang?.name || "Greek", level, minutes: duration, grammarFocus };
+      const customKeys = custom.map((c) => c.key);
+      const [first, second] = splitBlocks(blocks, custom.length > 0);
+      const part1 = await generateJson<LessonContent>(
         systemPrompt(),
-        lessonPrompt({ ...base, blocks: second, custom, soFar: part1.data }),
-        lessonSchema(second, customKeys, false)
+        lessonPrompt({ ...base, blocks: first, custom: second.length ? [] : custom, later: second }),
+        lessonSchema(first, second.length ? [] : customKeys)
       );
-      content = { ...content, ...part2.data };
-      usage.input_tokens += part2.usage.input_tokens;
-      usage.output_tokens += part2.usage.output_tokens;
+      let content = part1.data;
+      const usage = { ...part1.usage };
+      if (second.length) {
+        const part2 = await generateJson<Partial<LessonContent>>(
+          systemPrompt(),
+          lessonPrompt({ ...base, blocks: second, custom, soFar: part1.data }),
+          lessonSchema(second, customKeys, false)
+        );
+        content = { ...content, ...part2.data };
+        usage.input_tokens += part2.usage.input_tokens;
+        usage.output_tokens += part2.usage.output_tokens;
+      }
+      if (grammarFocus.length) content = { ...content, grammarFocus };
+
+      // Rarely a block comes back without its content; ask for it once more.
+      for (const block of blocks.filter((b) => isEmptyBlock(content[b as keyof LessonContent]))) {
+        const retry = await generateJson<Record<string, unknown>>(
+          systemPrompt(),
+          blockPrompt({ ...base, content, block, fresh: false }),
+          blockSchema(block),
+          16000
+        );
+        content = { ...content, [block]: retry.data[block] };
+        usage.input_tokens += retry.usage.input_tokens;
+        usage.output_tokens += retry.usage.output_tokens;
+      }
+
+      const { data: lesson, error } = await supabaseAdmin()
+        .from("lessons")
+        .insert({
+          ...(viewer.user ? { user_id: viewer.user.id } : { guest_id: guestId }),
+          language_code: language.code,
+          interface_code: ui.code,
+          theme,
+          level,
+          duration,
+          instruments: keys,
+          content,
+        })
+        .select("*")
+        .single();
+      if (error) throw new Error(error.message);
+
+      await recordGeneration({ ...who, lesson_id: lesson.id, kind: "lesson", theme, language_code: language.code, ...usage });
+      return { lesson, remaining: quota.remaining === null ? null : quota.remaining - 1 };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      await recordGeneration({ ...who, kind: "lesson_failed", theme, language_code: language.code, ok: false, error: message });
+      return { error: "generation", message };
     }
-    if (grammarFocus.length) content = { ...content, grammarFocus };
-
-    // Rarely a block comes back without its content; ask for it once more.
-    for (const block of blocks.filter((b) => isEmptyBlock(content[b as keyof LessonContent]))) {
-      const retry = await generateJson<Record<string, unknown>>(
-        systemPrompt(),
-        blockPrompt({ ...base, content, block, fresh: false }),
-        blockSchema(block),
-        16000
-      );
-      content = { ...content, [block]: retry.data[block] };
-      usage.input_tokens += retry.usage.input_tokens;
-      usage.output_tokens += retry.usage.output_tokens;
-    }
-
-    const { data: lesson, error } = await supabaseAdmin()
-      .from("lessons")
-      .insert({
-        ...(viewer.user ? { user_id: viewer.user.id } : { guest_id: guestId }),
-        language_code: language.code,
-        interface_code: ui.code,
-        theme,
-        level,
-        duration,
-        instruments: keys,
-        content,
-      })
-      .select("*")
-      .single();
-    if (error) throw new Error(error.message);
-
-    await recordGeneration({ ...who, lesson_id: lesson.id, kind: "lesson", theme, language_code: language.code, ...usage });
-    return json({ lesson, remaining: quota.remaining === null ? null : quota.remaining - 1 });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    await recordGeneration({ ...who, kind: "lesson_failed", theme, language_code: language.code, ok: false, error: message });
-    return json({ error: "generation", message }, 500);
-  }
+  });
 }
