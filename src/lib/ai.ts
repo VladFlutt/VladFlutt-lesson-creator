@@ -1,0 +1,196 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { CHARACTERS, STYLE } from "./characters";
+import type { NewsItem, Video } from "./lesson";
+
+const MODEL = () => process.env.ANTHROPIC_MODEL || "claude-opus-5-5";
+
+let client: Anthropic | null = null;
+const anthropic = () => (client ??= new Anthropic());
+
+export type Usage = { input_tokens: number; output_tokens: number };
+
+function usageOf(msg: { usage?: { input_tokens?: number; output_tokens?: number } }): Usage {
+  return { input_tokens: msg.usage?.input_tokens || 0, output_tokens: msg.usage?.output_tokens || 0 };
+}
+
+function textOf(content: Array<{ type: string; text?: string }>) {
+  return content
+    .filter((b) => b.type === "text")
+    .map((b) => b.text || "")
+    .join("");
+}
+
+// One structured-output call. Streams so long lessons don't hit HTTP timeouts.
+export async function generateJson<T>(system: string, prompt: string, schema: unknown, maxTokens = 32000) {
+  const params = {
+    model: MODEL(),
+    max_tokens: maxTokens,
+    system,
+    messages: [{ role: "user", content: prompt }],
+    thinking: { type: "adaptive" },
+    output_config: { effort: "medium", format: { type: "json_schema", schema } },
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stream = anthropic().beta.messages.stream(params as any);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const msg: any = await stream.finalMessage();
+  if (msg.stop_reason === "refusal") throw new Error("The model declined this theme.");
+  if (msg.stop_reason === "max_tokens") throw new Error("The lesson was too long to finish. Try fewer instruments.");
+  const data = JSON.parse(textOf(msg.content)) as T;
+  return { data, usage: usageOf(msg) };
+}
+
+// Finds recent articles with Claude's web search, keeping only URLs that the
+// search actually returned so links can't be invented.
+export async function findNews(p: { query: string; theme: string; languageName: string; interfaceName: string }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const monthAgo = new Date(Date.now() - 31 * 86400_000).toISOString().slice(0, 10);
+  const messages: Array<{ role: "user" | "assistant"; content: unknown }> = [
+    {
+      role: "user",
+      content:
+        `Today is ${today}. Find 2 news articles about "${p.theme}" (search ideas: ${p.query}) published between ${monthAgo} and ${today}. ` +
+        `Prefer reputable news sites written in ${p.languageName}; if there are none, use English. Use only articles that appear in your search results. ` +
+        `Reply with JSON only: {"articles":[{"title":"","url":"","source":"","published":"YYYY-MM-DD","summary":""}]} ` +
+        `where summary is one sentence in ${p.interfaceName}.`,
+    },
+  ];
+  const usage: Usage = { input_tokens: 0, output_tokens: 0 };
+  const seen = new Map<string, string | null>();
+  let finalText = "";
+  for (let i = 0; i < 4; i++) {
+    const params = {
+      model: MODEL(),
+      max_tokens: 8000,
+      messages,
+      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }],
+      output_config: { effort: "low" },
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const msg: any = await anthropic().beta.messages.create(params as any);
+    usage.input_tokens += msg.usage?.input_tokens || 0;
+    usage.output_tokens += msg.usage?.output_tokens || 0;
+    for (const block of msg.content || []) {
+      if (block.type === "web_search_tool_result" && Array.isArray(block.content)) {
+        for (const r of block.content) if (r.url) seen.set(normalizeUrl(r.url), r.page_age || null);
+      }
+    }
+    if (msg.stop_reason === "pause_turn") {
+      messages.push({ role: "assistant", content: msg.content });
+      continue;
+    }
+    finalText = textOf(msg.content || []);
+    break;
+  }
+  const match = finalText.match(/\{[\s\S]*\}/);
+  let articles: NewsItem[] = [];
+  if (match) {
+    try {
+      articles = (JSON.parse(match[0]).articles || []) as NewsItem[];
+    } catch {
+      articles = [];
+    }
+  }
+  const cutoff = Date.now() - 32 * 86400_000;
+  articles = articles.filter((a) => {
+    if (!a?.url || !seen.has(normalizeUrl(a.url))) return false;
+    const t = Date.parse(a.published);
+    return Number.isNaN(t) || t >= cutoff;
+  });
+  return { articles: articles.slice(0, 2), usage };
+}
+
+function normalizeUrl(u: string) {
+  return u.replace(/^https?:\/\/(www\.)?/, "").replace(/[#?].*$/, "").replace(/\/$/, "");
+}
+
+export async function findVideo(query: string, langCode: string): Promise<Video> {
+  const key = process.env.YOUTUBE_API_KEY;
+  const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+  if (!key) return { title: query, url: searchUrl, videoId: null, channel: "YouTube" };
+  const u = new URL("https://www.googleapis.com/youtube/v3/search");
+  u.search = new URLSearchParams({
+    part: "snippet",
+    q: query,
+    type: "video",
+    maxResults: "1",
+    relevanceLanguage: langCode,
+    safeSearch: "strict",
+    videoEmbeddable: "true",
+    key,
+  }).toString();
+  const res = await fetch(u);
+  if (!res.ok) throw new Error(`YouTube search failed (${res.status})`);
+  const data = await res.json();
+  const item = data.items?.[0];
+  if (!item) return { title: query, url: searchUrl, videoId: null, channel: "YouTube" };
+  return {
+    title: decodeEntities(item.snippet.title),
+    url: `https://www.youtube.com/watch?v=${item.id.videoId}`,
+    videoId: item.id.videoId,
+    channel: item.snippet.channelTitle,
+  };
+}
+
+function decodeEntities(s: string) {
+  return s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+}
+
+// Draws the lesson scene with Gemini, passing the character references.
+export async function drawImage(p: { scene: string; characterIds: string[]; origin: string }) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("GEMINI_API_KEY is not set");
+  const chars = CHARACTERS.filter((c) => p.characterIds.includes(c.id)).slice(0, 3);
+  const files = Array.from(new Set(chars.flatMap((c) => c.refs))).slice(0, 4);
+  if (!files.length) files.push("friends-alex-nikos.jpg");
+
+  const parts: unknown[] = [];
+  for (const f of files) {
+    const res = await fetch(`${p.origin}/characters/${f}`);
+    if (!res.ok) continue;
+    const data = Buffer.from(await res.arrayBuffer()).toString("base64");
+    parts.push({ inlineData: { mimeType: "image/jpeg", data } });
+  }
+  parts.push({
+    text:
+      `${STYLE}\nScene: ${p.scene}\n` +
+      (chars.length ? `Characters in the scene: ${chars.map((c) => c.appearance).join("; ")}.` : "") +
+      "\nWide 4:3 composition.",
+  });
+
+  const model = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": key },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts }],
+      generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+    }),
+  });
+  if (!res.ok) throw new Error(`Image generation failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  for (const part of data.candidates?.[0]?.content?.parts || []) {
+    const inline = part.inlineData || part.inline_data;
+    if (inline?.data) {
+      return { bytes: Buffer.from(inline.data, "base64"), mime: inline.mimeType || inline.mime_type || "image/png" };
+    }
+  }
+  throw new Error("Image model returned no image");
+}
+
+// Translates the interface strings for a newly added language.
+export async function translateUi(strings: Record<string, string>, languageName: string) {
+  const props: Record<string, unknown> = {};
+  for (const k of Object.keys(strings)) props[k] = { type: "string" };
+  const schema = { type: "object", properties: props, required: Object.keys(props), additionalProperties: false };
+  return generateJson<Record<string, string>>(
+    "You translate software interface strings. Keep placeholders like {n}, {w}, {a} unchanged. Keep strings short.",
+    `Translate every value of this JSON into ${languageName}. Keep the keys.\n${JSON.stringify(strings, null, 1)}`,
+    schema,
+    16000
+  );
+}
