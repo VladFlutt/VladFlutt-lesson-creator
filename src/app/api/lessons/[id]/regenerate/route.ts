@@ -1,7 +1,7 @@
 import { getViewer } from "@/lib/supabase-server";
 import { loadCatalog } from "@/lib/catalog";
 import { ipHash, recordGeneration } from "@/lib/usage";
-import { guestIdFromCookie, json, loadOwnLesson } from "@/lib/access";
+import { configError, guestIdFromCookie, json, loadOwnLesson } from "@/lib/access";
 import { generateJson } from "@/lib/ai";
 import { BLOCK_GUIDE, BLOCK_SCHEMAS, systemPrompt } from "@/lib/lesson";
 import { supabaseAdmin } from "@/lib/supabase-server";
@@ -10,6 +10,8 @@ export const maxDuration = 300;
 
 // Rewrites a single text block, keeping the rest of the lesson as context.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const misconfigured = configError();
+  if (misconfigured) return misconfigured;
   const { id } = await params;
   const { block } = await req.json().catch(() => ({ block: "" }));
   if (!BLOCK_SCHEMAS[block]) return json({ error: "block" }, 400);

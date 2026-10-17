@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { supabaseAdmin, type Viewer } from "./supabase-server";
 import { cleanGuestId } from "./usage";
 import type { LessonRow } from "./lesson";
+import { serviceKeyProblem } from "./text";
 
 export async function guestIdFromCookie() {
   const store = await cookies();
@@ -19,4 +20,12 @@ export async function loadOwnLesson(id: string, viewer: Viewer): Promise<LessonR
 
 export function json(data: unknown, status = 200) {
   return Response.json(data, { status });
+}
+
+// Stops a request before any paid AI call when the server can't write to the database.
+export function configError(): Response | null {
+  const problem = serviceKeyProblem(process.env.SUPABASE_SERVICE_ROLE_KEY, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+  if (!problem) return null;
+  console.error(problem);
+  return json({ error: "config" }, 500);
 }

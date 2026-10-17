@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { CHARACTERS, STYLE } from "./characters";
-import type { NewsItem, Video } from "./lesson";
+import type { Video } from "./lesson";
+import { normalizeUrl, pickArticles } from "./news";
 
 const MODEL = () => process.env.ANTHROPIC_MODEL || "claude-opus-5-5";
 
@@ -58,7 +59,7 @@ export async function findNews(p: { query: string; theme: string; languageName: 
     },
   ];
   const usage: Usage = { input_tokens: 0, output_tokens: 0 };
-  const seen = new Map<string, string | null>();
+  const seen = new Set<string>();
   let finalText = "";
   for (let i = 0; i < 4; i++) {
     const params = {
@@ -76,7 +77,7 @@ export async function findNews(p: { query: string; theme: string; languageName: 
     usage.output_tokens += msg.usage?.output_tokens || 0;
     for (const block of msg.content || []) {
       if (block.type === "web_search_tool_result" && Array.isArray(block.content)) {
-        for (const r of block.content) if (r.url) seen.set(normalizeUrl(r.url), r.page_age || null);
+        for (const r of block.content) if (r.url) seen.add(normalizeUrl(r.url));
       }
     }
     if (msg.stop_reason === "pause_turn") {
@@ -86,26 +87,7 @@ export async function findNews(p: { query: string; theme: string; languageName: 
     finalText = textOf(msg.content || []);
     break;
   }
-  const match = finalText.match(/\{[\s\S]*\}/);
-  let articles: NewsItem[] = [];
-  if (match) {
-    try {
-      articles = (JSON.parse(match[0]).articles || []) as NewsItem[];
-    } catch {
-      articles = [];
-    }
-  }
-  const cutoff = Date.now() - 32 * 86400_000;
-  articles = articles.filter((a) => {
-    if (!a?.url || !seen.has(normalizeUrl(a.url))) return false;
-    const t = Date.parse(a.published);
-    return Number.isNaN(t) || t >= cutoff;
-  });
-  return { articles: articles.slice(0, 2), usage };
-}
-
-function normalizeUrl(u: string) {
-  return u.replace(/^https?:\/\/(www\.)?/, "").replace(/[#?].*$/, "").replace(/\/$/, "");
+  return { articles: pickArticles(finalText, seen), usage };
 }
 
 export async function findVideo(query: string, langCode: string): Promise<Video> {

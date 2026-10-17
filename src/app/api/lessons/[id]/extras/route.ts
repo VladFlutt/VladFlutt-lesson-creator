@@ -1,13 +1,15 @@
 import { getViewer, supabaseAdmin } from "@/lib/supabase-server";
 import { loadCatalog } from "@/lib/catalog";
 import { ipHash, recordGeneration } from "@/lib/usage";
-import { guestIdFromCookie, json, loadOwnLesson } from "@/lib/access";
+import { configError, guestIdFromCookie, json, loadOwnLesson } from "@/lib/access";
 import { drawImage, findNews, findVideo } from "@/lib/ai";
 
 export const maxDuration = 300;
 
 // Fills one of the slower blocks (image, news, video) after the main lesson.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const misconfigured = configError();
+  if (misconfigured) return misconfigured;
   const { id } = await params;
   const { part } = await req.json().catch(() => ({ part: "" }));
   if (!["image", "news", "video"].includes(part)) return json({ error: "part" }, 400);

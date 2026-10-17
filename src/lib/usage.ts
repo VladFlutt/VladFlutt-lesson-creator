@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { supabaseAdmin, type Viewer } from "./supabase-server";
 import { getSettings } from "./catalog";
+import { matchRestricted } from "./text";
 
 export function ipHash(h: { get(name: string): string | null }): string {
   const ip = (h.get("x-forwarded-for") || "").split(",")[0].trim() || "unknown";
@@ -75,11 +76,7 @@ export async function recordGeneration(row: {
 
 export async function findRestrictedWord(theme: string): Promise<string | null> {
   const { data } = await supabaseAdmin().from("restricted_words").select("word").eq("status", "active");
-  const t = theme.toLowerCase();
-  for (const { word } of data || []) {
-    if (word && t.includes(String(word).toLowerCase())) return word;
-  }
-  return null;
+  return matchRestricted(theme, (data || []).map((r) => String(r.word || "")));
 }
 
 export function cleanGuestId(raw: string | undefined): string {

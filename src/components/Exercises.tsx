@@ -1,19 +1,9 @@
 "use client";
 import { useState } from "react";
 import { fmt } from "@/lib/i18n";
+import { normalize } from "@/lib/text";
 import type { Exercise } from "@/lib/lesson";
 import { useUi } from "./UiProvider";
-
-// Lenient comparison: case, punctuation, spacing and accents don't matter.
-export function normalize(s: string) {
-  return s
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[.,!?;:«»"'()¿¡·…\-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 function One({ ex, n }: { ex: Exercise; n: number }) {
   const { dict } = useUi();

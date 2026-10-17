@@ -1,13 +1,15 @@
 import { getViewer, supabaseAdmin } from "@/lib/supabase-server";
 import { loadCatalog, getUi } from "@/lib/catalog";
 import { checkQuota, findRestrictedWord, ipHash, recordGeneration } from "@/lib/usage";
-import { guestIdFromCookie, json } from "@/lib/access";
+import { configError, guestIdFromCookie, json } from "@/lib/access";
 import { generateJson } from "@/lib/ai";
 import { lessonPrompt, lessonSchema, systemPrompt, TEXT_BLOCKS, type LessonContent } from "@/lib/lesson";
 
 export const maxDuration = 300;
 
 export async function POST(req: Request) {
+  const misconfigured = configError();
+  if (misconfigured) return misconfigured;
   const body = await req.json().catch(() => ({}));
   const theme = String(body.theme || "").trim().slice(0, 200);
   const languageCode = String(body.languageCode || "");
