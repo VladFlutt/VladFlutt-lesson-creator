@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
-import { BLOCK_GUIDE, BLOCK_SCHEMAS, EXTRA_BLOCKS, TEXT_BLOCKS, lessonPrompt, lessonSchema } from "@/lib/lesson";
+import { BLOCK_GUIDE, BLOCK_SCHEMAS, EXERCISE_TYPES, EXTRA_BLOCKS, TEXT_BLOCKS, lessonPrompt, lessonSchema } from "@/lib/lesson";
 import { CHARACTERS } from "@/lib/characters";
 
 type Node = { type?: string; properties?: Record<string, Node>; required?: string[]; additionalProperties?: boolean; items?: Node };
@@ -45,7 +45,8 @@ describe("lesson blocks", () => {
   });
 
   it("seeds a built-in instrument for every block", () => {
-    const sql = readFileSync(path.join(__dirname, "../supabase/migrations/0001_init.sql"), "utf8");
+    const dir = path.join(__dirname, "../supabase/migrations");
+    const sql = readFileSync(path.join(dir, "0001_init.sql"), "utf8") + readFileSync(path.join(dir, "0002_grammar.sql"), "utf8");
     for (const b of [...TEXT_BLOCKS, ...EXTRA_BLOCKS]) expect(sql, b).toContain(`('${b}', '{`);
     expect(sql).toMatch(/\('guest_limit', '3'\)/);
   });
@@ -58,6 +59,33 @@ describe("lesson blocks", () => {
     expect(p).toContain("Russian");
     expect(p).toContain(BLOCK_GUIDE.cards);
     expect(p).not.toContain(BLOCK_GUIDE.dialogue);
+  });
+});
+
+describe("exercises and grammar", () => {
+  it("offers only linguistic exercise types", () => {
+    const s = lessonSchema(["exercises"], []) as unknown as { properties: { exercises: { items: { properties: { type: { enum: string[] } } } } } };
+    expect(s.properties.exercises.items.properties.type.enum).toEqual([...EXERCISE_TYPES]);
+    expect(EXERCISE_TYPES).not.toContain("true_false");
+    expect(BLOCK_GUIDE.exercises).toMatch(/LINGUISTIC/);
+  });
+
+  it("passes the tutor's grammar topics into the prompt", () => {
+    const base = { theme: "x", languageName: "Greek", interfaceName: "Russian", level: "A2", minutes: 45, custom: [] };
+    const p = lessonPrompt({ ...base, blocks: ["grammar", "exercises"], grammarFocus: ["Simple past (aorist) (Αόριστος)", "Future tense (θα)"] });
+    expect(p).toContain("GRAMMAR FOCUS chosen by the tutor: Simple past (aorist) (Αόριστος); Future tense (θα)");
+    expect(p).toContain(BLOCK_GUIDE.grammar);
+    expect(lessonPrompt({ ...base, blocks: ["grammar"] })).not.toContain("GRAMMAR FOCUS chosen");
+  });
+
+  it("seeds grammar topics with names in every interface language", () => {
+    const sql = readFileSync(path.join(__dirname, "../supabase/migrations/0002_grammar.sql"), "utf8");
+    const names = [...sql.matchAll(/\('(el|ru)', '(A1|A2|B1|B2|C1|C2)', '(\{.*?\})', \d+\)/g)];
+    expect(names.length).toBeGreaterThan(30);
+    for (const [, , , json] of names) {
+      const n = JSON.parse(json);
+      expect(n.el && n.ru && n.en, json).toBeTruthy();
+    }
   });
 });
 

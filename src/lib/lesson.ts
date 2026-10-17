@@ -2,7 +2,16 @@
 
 import { CHARACTERS } from "./characters";
 
-export type ExerciseType = "choice" | "fill_gap" | "translate_to_target" | "translate_to_native" | "true_false";
+// true_false is kept only so lessons made before the linguistic exercise set still render.
+export type ExerciseType =
+  | "choice"
+  | "fill_gap"
+  | "transform"
+  | "word_order"
+  | "translate_to_target"
+  | "translate_to_native"
+  | "true_false";
+export const EXERCISE_TYPES = ["choice", "fill_gap", "transform", "word_order", "translate_to_target", "translate_to_native"] as const;
 
 export type Exercise = {
   type: ExerciseType;
@@ -10,6 +19,14 @@ export type Exercise = {
   options: string[];
   answer: string;
   explanation: string;
+};
+
+export type GrammarTopic = {
+  title: string;
+  explanation: string;
+  forms: { form: string; note: string }[];
+  examples: { sentence: string; translation: string }[];
+  commonMistake: string;
 };
 
 export type NewsItem = { title: string; url: string; source: string; published: string; summary: string };
@@ -26,6 +43,9 @@ export type LessonContent = {
   intro?: { description: string; objectives: string[] };
   warmup?: { questions: { question: string; translation: string }[] };
   cards?: { term: string; translation: string; example: string; exampleTranslation: string }[];
+  grammar?: { topics: GrammarTopic[] };
+  // Grammar topics the tutor picked (English names); set by the server, not the model.
+  grammarFocus?: string[];
   text?: { title: string; body: string };
   translation?: { body: string };
   exercises?: Exercise[];
@@ -56,7 +76,7 @@ export type LessonRow = {
 };
 
 // Blocks Claude writes. image/news/video are produced by separate calls.
-export const TEXT_BLOCKS = ["intro", "warmup", "cards", "text", "translation", "exercises", "dialogue", "summary", "homework"] as const;
+export const TEXT_BLOCKS = ["intro", "warmup", "cards", "grammar", "text", "translation", "exercises", "dialogue", "summary", "homework"] as const;
 export const EXTRA_BLOCKS = ["image", "news", "video"] as const;
 
 const str = { type: "string" };
@@ -72,12 +92,24 @@ export const BLOCK_SCHEMAS: Record<string, unknown> = {
   intro: obj({ description: str, objectives: strArr }),
   warmup: obj({ questions: { type: "array", items: obj({ question: str, translation: str }) } }),
   cards: { type: "array", items: obj({ term: str, translation: str, example: str, exampleTranslation: str }) },
+  grammar: obj({
+    topics: {
+      type: "array",
+      items: obj({
+        title: str,
+        explanation: str,
+        forms: { type: "array", items: obj({ form: str, note: str }) },
+        examples: { type: "array", items: obj({ sentence: str, translation: str }) },
+        commonMistake: str,
+      }),
+    },
+  }),
   text: obj({ title: str, body: str }),
   translation: obj({ body: str }),
   exercises: {
     type: "array",
     items: obj({
-      type: { type: "string", enum: ["choice", "fill_gap", "translate_to_target", "translate_to_native", "true_false"] },
+      type: { type: "string", enum: [...EXERCISE_TYPES] },
       prompt: str,
       options: strArr,
       answer: str,
@@ -115,11 +147,21 @@ export const BLOCK_GUIDE: Record<string, string> = {
   cards: "cards: 10-16 key words and phrases in the LESSON language (with article/gender where relevant), translation into the INTERFACE language, a short level-appropriate example sentence and its translation.",
   text: "text: a reading text in the LESSON language that uses the card vocabulary; length suited to the level and lesson duration (A1 about 80-120 words, C2 up to 450).",
   translation: "translation: a faithful translation of the text into the INTERFACE language.",
+  grammar:
+    "grammar: explain the grammar topics listed under GRAMMAR FOCUS (if none are listed, choose the 1-2 most useful topics for this level and theme). " +
+    "One entry per topic: title in the INTERFACE language with the LESSON-language term in brackets; a clear, short explanation in the INTERFACE language; " +
+    "forms = the key forms or a mini-table as rows (form in the LESSON language, note with its meaning or usage in the INTERFACE language); " +
+    "3-5 examples in the LESSON language built on the lesson theme and vocabulary, each with a translation; commonMistake = one typical learner error and how to avoid it.",
   exercises:
-    "exercises: 8-12 interactive exercises mixing every type, in both directions. choice = pick the right word (3-4 options, the answer must be one of them); " +
-    "fill_gap = sentence in the LESSON language with ___ for one missing word, options may be empty; translate_to_target = interface-language phrase to translate into the lesson language; " +
-    "translate_to_native = lesson-language phrase to translate into the interface language; true_false = statement about the text, options exactly the two words for true and false in the interface language. " +
-    "answer is the exact correct answer; explanation is a short kind explanation in the INTERFACE language. Keep translation answers short (2-6 words) so they can be checked.",
+    "exercises: 8-12 LINGUISTIC exercises that train language skills: grammar forms, vocabulary, collocations, word formation and word order. " +
+    "Never test general knowledge, opinions or facts about the story; every item must have one clearly correct language answer. " +
+    "Mix the types and work in both directions. choice = pick the correct word or grammatical form (3-4 options, the answer must be one of them); " +
+    "fill_gap = sentence in the LESSON language with ___ for one missing word, giving the base form in brackets when the student must change its form, options empty; " +
+    "transform = rewrite a short LESSON-language sentence as the prompt instructs (other tense, number, case, person, negative or question), options empty; " +
+    "word_order = options are the shuffled words of one LESSON-language sentence, the answer is the sentence in correct order without final punctuation; " +
+    "translate_to_target = INTERFACE-language phrase to translate into the LESSON language; translate_to_native = LESSON-language phrase to translate into the INTERFACE language. " +
+    "Write every prompt's instruction in the INTERFACE language. When there is a GRAMMAR FOCUS or a grammar block, at least half of the exercises practise those topics. " +
+    "answer is the exact correct answer; explanation is a short kind explanation of the rule in the INTERFACE language. Keep translation and transform answers short (2-8 words) so they can be checked.",
   dialogue:
     "dialogue: a natural dialogue of 8-14 lines in the LESSON language between 2-3 of the chosen characters, using the vocabulary; give each speaker a culturally natural name for the lesson language and keep it consistent; include an interface-language translation per line.",
   summary: "summary: 3-6 points (INTERFACE language) recapping what was learned, including the key grammar or phrases.",
@@ -149,6 +191,7 @@ export function lessonPrompt(p: {
   minutes: number;
   blocks: string[];
   custom: { key: string; description: string }[];
+  grammarFocus?: string[];
 }) {
   const guide = p.blocks.map((b) => BLOCK_GUIDE[b]).filter(Boolean);
   for (const c of p.custom) guide.push(`custom (key "${c.key}"): ${c.description}. Write it with a short title and body.`);
@@ -165,9 +208,10 @@ export function lessonPrompt(p: {
     "- timing: a plan that splits the full lesson time across the blocks below, in order (block names in the INTERFACE language); minutes must add up to " + p.minutes + ".",
     "- tutorTips: 3-5 practical tips for the tutor (INTERFACE language) on pacing, likely student difficulties, error correction and keeping the student motivated.",
     "- imagePrompt: one English sentence describing a single scene for the lesson illustration with the chosen characters (refer to them by appearance, not id).",
-    "- videoQuery: a YouTube search query in the LESSON language that finds a short learner-friendly video on the theme.",
+    "- videoQuery: a YouTube search query in the LESSON language that finds a short video on the theme spoken in the LESSON language (native content or lessons of that language, never videos that teach another language).",
     "- newsQuery: a news search query in the LESSON language for recent articles on the theme.",
     "",
+    ...(p.grammarFocus?.length ? ["GRAMMAR FOCUS chosen by the tutor: " + p.grammarFocus.join("; "), ""] : []),
     "Blocks to write:",
     ...guide.map((g) => "- " + g),
     "",

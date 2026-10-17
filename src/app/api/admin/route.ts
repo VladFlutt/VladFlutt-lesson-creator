@@ -11,6 +11,7 @@ const TABLES: Record<string, string[]> = {
   durations: ["minutes", "status"],
   instruments: ["key", "name", "description", "default_on", "status", "sort"],
   restricted_words: ["word", "status"],
+  grammar_topics: ["language_code", "level", "name", "status", "sort"],
 };
 
 function pick(data: Record<string, unknown>, cols: string[]) {
@@ -27,9 +28,10 @@ export async function POST(req: Request) {
   const sb = supabaseAdmin();
   const { action, table, id, data = {} } = await req.json().catch(() => ({}));
 
-  // Reference lists: languages, levels, durations, instruments, restricted words.
+  // Reference lists: languages, levels, durations, instruments, grammar topics, restricted words.
   if (TABLES[table]) {
     const row = pick(data, TABLES[table]);
+    if (table === "grammar_topics" && row.level === "") row.level = null;
     if (action === "create") {
       if (table === "instruments") Object.assign(row, { is_builtin: false });
       if (table === "languages" && row.code && !builtinDicts[String(row.code)]) {

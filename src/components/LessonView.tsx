@@ -10,7 +10,7 @@ import { ttsFor, useUi } from "./UiProvider";
 
 type Mode = "owner" | "guest" | "student";
 const EXTRAS = ["image", "news", "video"] as const;
-const REGENERABLE = new Set(["intro", "warmup", "cards", "text", "translation", "exercises", "dialogue", "summary", "homework"]);
+const REGENERABLE = new Set(["intro", "warmup", "cards", "grammar", "text", "translation", "exercises", "dialogue", "summary", "homework"]);
 
 export function LessonView({
   lesson: initial,
@@ -178,6 +178,41 @@ export function LessonView({
       <section className="card block" key="cards">
         {head("cards", names.cards || dict.cards)}
         <FlipCards cards={c.cards} tts={tts} />
+      </section>
+    ),
+    grammar: c.grammar && (
+      <section className="card block" key="grammar">
+        {head("grammar", names.grammar || dict.grammar)}
+        {c.grammar.topics.map((g, i) => (
+          <div key={i} style={{ marginTop: i ? 18 : 0 }}>
+            <h3>{g.title}</h3>
+            <div className="reading">{g.explanation}</div>
+            {g.forms.length > 0 && (
+              <table className="grammar-forms">
+                <tbody>
+                  {g.forms.map((f, j) => (
+                    <tr key={j}>
+                      <td>{f.form}</td>
+                      <td className="muted">{f.note}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {g.examples.map((x, j) => (
+              <div className="line" key={j}>
+                <Speak text={x.sentence} lang={tts} />
+                <div>
+                  <div>{x.sentence}</div>
+                  <div className="tr muted small">{x.translation}</div>
+                </div>
+              </div>
+            ))}
+            {g.commonMistake && (
+              <div className="mistake small"><b>{dict.commonMistake}:</b> {g.commonMistake}</div>
+            )}
+          </div>
+        ))}
       </section>
     ),
     image: (

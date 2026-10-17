@@ -9,7 +9,15 @@ function One({ ex, n }: { ex: Exercise; n: number }) {
   const { dict } = useUi();
   const [value, setValue] = useState("");
   const [checked, setChecked] = useState(false);
-  const hasOptions = ex.options && ex.options.length > 0;
+  const wordOrder = ex.type === "word_order";
+  const hasOptions = !wordOrder && ex.options && ex.options.length > 0;
+  const used = value.trim() ? value.trim().split(/\s+/) : [];
+  // Each shuffled word can be placed as many times as it appears in the list.
+  const left = (i: number) => {
+    const w = ex.options[i];
+    const before = ex.options.slice(0, i + 1).filter((x) => x === w).length;
+    return used.filter((x) => x === w).length < before;
+  };
   const ok = normalize(value) === normalize(ex.answer);
 
   return (
@@ -31,6 +39,19 @@ function One({ ex, n }: { ex: Exercise; n: number }) {
           })}
         </div>
       ) : (
+        <>
+        {wordOrder && (
+          <div className="options">
+            {ex.options.map((w, i) => (
+              <button key={i} type="button" className="word-chip" disabled={!left(i)} onClick={() => { setValue((v) => (v.trim() ? `${v.trim()} ${w}` : w)); setChecked(false); }}>
+                {w}
+              </button>
+            ))}
+            <button type="button" className="btn ghost small" onClick={() => { setValue(""); setChecked(false); }} disabled={!value}>
+              {dict.clear}
+            </button>
+          </div>
+        )}
         <div className="row">
           <input
             style={{ maxWidth: 420 }}
@@ -43,6 +64,7 @@ function One({ ex, n }: { ex: Exercise; n: number }) {
             {dict.check}
           </button>
         </div>
+        </>
       )}
       {checked && (
         <div className={`feedback ${ok ? "ok" : "bad"}`}>

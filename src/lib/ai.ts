@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { CHARACTERS, STYLE } from "./characters";
 import type { Video } from "./lesson";
-import { normalizeUrl, pickArticles } from "./news";
+import { normalizeUrl, pickArticles, pickVideo, type VideoCandidate } from "./news";
 
 const MODEL = () => process.env.ANTHROPIC_MODEL || "claude-opus-5-5";
 
@@ -45,7 +45,7 @@ export async function generateJson<T>(system: string, prompt: string, schema: un
 
 // Finds recent articles with Claude's web search, keeping only URLs that the
 // search actually returned so links can't be invented.
-export async function findNews(p: { query: string; theme: string; languageName: string; interfaceName: string }) {
+export async function findNews(p: { query: string; theme: string; languageName: string; languageCode: string; interfaceName: string }) {
   const today = new Date().toISOString().slice(0, 10);
   const monthAgo = new Date(Date.now() - 31 * 86400_000).toISOString().slice(0, 10);
   const messages: Array<{ role: "user" | "assistant"; content: unknown }> = [
@@ -53,9 +53,11 @@ export async function findNews(p: { query: string; theme: string; languageName: 
       role: "user",
       content:
         `Today is ${today}. Find 2 news articles about "${p.theme}" (search ideas: ${p.query}) published between ${monthAgo} and ${today}. ` +
-        `Prefer reputable news sites written in ${p.languageName}; if there are none, use English. Use only articles that appear in your search results. ` +
-        `Reply with JSON only: {"articles":[{"title":"","url":"","source":"","published":"YYYY-MM-DD","summary":""}]} ` +
-        `where summary is one sentence in ${p.interfaceName}.`,
+        `The articles must be written in ${p.languageName} on news sites in ${p.languageName}; never use articles in any other language, ` +
+        `and return fewer than 2 rather than break this rule. Search in ${p.languageName}. Use only articles that appear in your search results. ` +
+        `Reply with JSON only: {"articles":[{"title":"","url":"","source":"","published":"YYYY-MM-DD","language":"","summary":""}]} ` +
+        `where language is the ISO 639-1 code of the article's language (${p.languageCode} for ${p.languageName}) and ` +
+        `summary is one sentence in ${p.interfaceName}.`,
     },
   ];
   const usage: Usage = { input_tokens: 0, output_tokens: 0 };
@@ -87,7 +89,7 @@ export async function findNews(p: { query: string; theme: string; languageName: 
     finalText = textOf(msg.content || []);
     break;
   }
-  return { articles: pickArticles(finalText, seen), usage };
+  return { articles: pickArticles(finalText, seen, p.languageCode), usage };
 }
 
 export async function findVideo(query: string, langCode: string): Promise<Video> {
@@ -99,7 +101,7 @@ export async function findVideo(query: string, langCode: string): Promise<Video>
     part: "snippet",
     q: query,
     type: "video",
-    maxResults: "1",
+    maxResults: "10",
     relevanceLanguage: langCode,
     safeSearch: "strict",
     videoEmbeddable: "true",
@@ -108,14 +110,25 @@ export async function findVideo(query: string, langCode: string): Promise<Video>
   const res = await fetch(u);
   if (!res.ok) throw new Error(`YouTube search failed (${res.status})`);
   const data = await res.json();
-  const item = data.items?.[0];
-  if (!item) return { title: query, url: searchUrl, videoId: null, channel: "YouTube" };
-  return {
-    title: decodeEntities(item.snippet.title),
-    url: `https://www.youtube.com/watch?v=${item.id.videoId}`,
-    videoId: item.id.videoId,
-    channel: item.snippet.channelTitle,
-  };
+  const ids: string[] = (data.items || []).map((i: { id: { videoId: string } }) => i.id.videoId).filter(Boolean);
+  if (!ids.length) return { title: query, url: searchUrl, videoId: null, channel: "YouTube" };
+
+  // The search only biases by language, so read each video's language metadata.
+  const details = new URL("https://www.googleapis.com/youtube/v3/videos");
+  details.search = new URLSearchParams({ part: "snippet", id: ids.join(","), key }).toString();
+  const dres = await fetch(details);
+  const meta = new Map<string, { defaultAudioLanguage?: string; defaultLanguage?: string }>();
+  if (dres.ok) for (const v of (await dres.json()).items || []) meta.set(v.id, v.snippet || {});
+  const candidates: VideoCandidate[] = (data.items || []).map((i: { id: { videoId: string }; snippet: { title: string; channelTitle: string } }) => ({
+    id: i.id.videoId,
+    title: decodeEntities(i.snippet.title),
+    channel: i.snippet.channelTitle,
+    audioLanguage: meta.get(i.id.videoId)?.defaultAudioLanguage,
+    language: meta.get(i.id.videoId)?.defaultLanguage,
+  }));
+  const pick = pickVideo(candidates, langCode);
+  if (!pick) return { title: query, url: searchUrl, videoId: null, channel: "YouTube" };
+  return { title: pick.title, url: `https://www.youtube.com/watch?v=${pick.id}`, videoId: pick.id, channel: pick.channel };
 }
 
 function decodeEntities(s: string) {

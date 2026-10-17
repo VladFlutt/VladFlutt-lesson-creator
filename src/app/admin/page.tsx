@@ -60,6 +60,7 @@ export default async function AdminPage() {
       levels={catalog.levels}
       durations={catalog.durations}
       instruments={catalog.instruments}
+      grammar={catalog.grammar}
       restricted={restrictedRes.data || []}
       settings={settings}
       users={users}

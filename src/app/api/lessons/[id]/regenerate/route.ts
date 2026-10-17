@@ -32,6 +32,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     `Here is an existing ${lesson.duration}-minute ${lesson.level} lesson on "${lesson.theme}".`,
     `LESSON language: ${lang?.name}. INTERFACE language: ${ui?.name}.`,
     JSON.stringify(rest),
+    ...(rest.grammarFocus?.length ? ["", "GRAMMAR FOCUS chosen by the tutor: " + rest.grammarFocus.join("; ")] : []),
     "",
     `Write a fresh, different version of only this block, consistent with the rest of the lesson:`,
     BLOCK_GUIDE[block],

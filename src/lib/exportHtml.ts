@@ -32,6 +32,20 @@ export function lessonToHtml(p: {
         .join("")}</tbody></table>`
     );
   }
+  if (has("grammar") && c.grammar) {
+    section(
+      t.grammar,
+      c.grammar.topics
+        .map(
+          (g) =>
+            `<h3>${esc(g.title)}</h3><p class="pre">${esc(g.explanation)}</p>` +
+            (g.forms.length ? `<table><tbody>${g.forms.map((f) => `<tr><td><b>${esc(f.form)}</b></td><td>${esc(f.note)}</td></tr>`).join("")}</tbody></table>` : "") +
+            `<ul>${g.examples.map((x) => `<li>${esc(x.sentence)}<br><i>${esc(x.translation)}</i></li>`).join("")}</ul>` +
+            (g.commonMistake ? `<p><b>${esc(t.commonMistake)}:</b> ${esc(g.commonMistake)}</p>` : "")
+        )
+        .join("")
+    );
+  }
   if (has("image") && c.image && "url" in c.image) out.push(`<section><img src="${esc(c.image.url)}" alt=""></section>`);
   if (has("text") && c.text) section(c.text.title || t.text, `<p class="pre">${esc(c.text.body)}</p>`);
   if (has("translation") && c.translation) section(t.translation, `<p class="pre">${esc(c.translation.body)}</p>`);
@@ -39,7 +53,7 @@ export function lessonToHtml(p: {
     section(
       t.exercises,
       `<ol>${c.exercises
-        .map((e) => `<li>${esc(e.prompt)}${e.options?.length ? `<br>${e.options.map(esc).join(" · ")}` : ""}<br>__________________</li>`)
+        .map((e) => `<li>${esc(e.prompt)}${e.options?.length ? `<br>${e.options.map(esc).join(e.type === "word_order" ? " / " : " · ")}` : ""}<br>__________________</li>`)
         .join("")}</ol>`
     );
   }

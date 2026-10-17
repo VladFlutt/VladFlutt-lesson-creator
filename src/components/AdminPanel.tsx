@@ -36,7 +36,7 @@ type Row = Record<string, any>;
 // Admin labels (the admin panel isn't machine-translated for added languages).
 const L = {
   ru: {
-    languages: "Языки", levels: "Уровни", durations: "Длительность", instruments: "Инструменты", restricted: "Запрещённые слова",
+    languages: "Языки", levels: "Уровни", durations: "Длительность", instruments: "Инструменты", grammar: "Грамматика", restricted: "Запрещённые слова",
     users: "Пользователи", history: "История", limits: "Лимиты", add: "Добавить", save: "Сохранить", block: "Заблокировать",
     unblock: "Разблокировать", delete: "Удалить", status: "Статус", confirm: "Удалить без возможности восстановления?",
     guestLimit: "Попыток для гостей (всего)", defDay: "Генераций в день", defWeek: "Генераций в неделю", defMonth: "Генераций в месяц",
@@ -47,7 +47,7 @@ const L = {
     newLangNote: "Интерфейс для нового языка переводится автоматически при добавлении.", saved: "Сохранено",
   },
   el: {
-    languages: "Γλώσσες", levels: "Επίπεδα", durations: "Διάρκειες", instruments: "Εργαλεία", restricted: "Απαγορευμένες λέξεις",
+    languages: "Γλώσσες", levels: "Επίπεδα", durations: "Διάρκειες", instruments: "Εργαλεία", grammar: "Γραμματική", restricted: "Απαγορευμένες λέξεις",
     users: "Χρήστες", history: "Ιστορικό", limits: "Όρια", add: "Προσθήκη", save: "Αποθήκευση", block: "Αποκλεισμός",
     unblock: "Άρση αποκλεισμού", delete: "Διαγραφή", status: "Κατάσταση", confirm: "Οριστική διαγραφή;",
     guestLimit: "Προσπάθειες επισκέπτη (σύνολο)", defDay: "Δημιουργίες ανά ημέρα", defWeek: "Δημιουργίες ανά εβδομάδα", defMonth: "Δημιουργίες ανά μήνα",
@@ -58,7 +58,7 @@ const L = {
     newLangNote: "Η διεπαφή για νέα γλώσσα μεταφράζεται αυτόματα κατά την προσθήκη.", saved: "Αποθηκεύτηκε",
   },
   en: {
-    languages: "Languages", levels: "Levels", durations: "Durations", instruments: "Instruments", restricted: "Restricted words",
+    languages: "Languages", levels: "Levels", durations: "Durations", instruments: "Instruments", grammar: "Grammar", restricted: "Restricted words",
     users: "Users", history: "History", limits: "Limits", add: "Add", save: "Save", block: "Block",
     unblock: "Unblock", delete: "Delete", status: "Status", confirm: "Delete permanently?",
     guestLimit: "Guest attempts (total)", defDay: "Generations per day", defWeek: "Generations per week", defMonth: "Generations per month",
@@ -374,6 +374,7 @@ export function AdminPanel(props: {
   levels: Row[];
   durations: Row[];
   instruments: Row[];
+  grammar: Row[];
   restricted: Row[];
   settings: Record<string, number | null>;
   users: UserRow[];
@@ -382,7 +383,7 @@ export function AdminPanel(props: {
 }) {
   const { code } = useUi();
   const t = (L as Record<string, typeof L.en>)[code] || L.en;
-  const tabs = ["languages", "levels", "durations", "instruments", "restricted", "users", "history", "limits"] as const;
+  const tabs = ["languages", "levels", "durations", "instruments", "grammar", "restricted", "users", "history", "limits"] as const;
   const [tab, setTab] = useState<(typeof tabs)[number]>("users");
 
   return (
@@ -443,6 +444,20 @@ export function AdminPanel(props: {
             { key: "sort", label: "Sort", type: "number", width: 50 },
           ]}
           blank={{ key: "", name: { el: "", ru: "", en: "" }, description: "", default_on: false, sort: 100 }}
+        />
+      )}
+      {tab === "grammar" && (
+        <ListEditor
+          table="grammar_topics"
+          rows={props.grammar}
+          t={t}
+          cols={[
+            { key: "language_code", label: "Language code", width: 50 },
+            { key: "level", label: "Level", width: 50 },
+            { key: "name", label: 'Name {"el","ru","en"}', type: "json", width: 320 },
+            { key: "sort", label: "Sort", type: "number", width: 50 },
+          ]}
+          blank={{ language_code: "el", level: "A1", name: { el: "", ru: "", en: "" }, sort: 100 }}
         />
       )}
       {tab === "restricted" && (

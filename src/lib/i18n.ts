@@ -73,6 +73,11 @@ export const en = {
   published: "Published",
   source: "Source",
   cards: "Words and phrases",
+  grammar: "Grammar",
+  grammarTopics: "Grammar topics (up to 3)",
+  grammarAuto: "If you pick none, topics that suit the level are chosen for you.",
+  commonMistake: "Common mistake",
+  clear: "Clear",
 } as const;
 
 export type Dict = { [K in keyof typeof en]: string };
@@ -149,6 +154,11 @@ const el: Dict = {
   published: "Δημοσιεύτηκε",
   source: "Πηγή",
   cards: "Λέξεις και φράσεις",
+  grammar: "Γραμματική",
+  grammarTopics: "Θέματα γραμματικής (έως 3)",
+  grammarAuto: "Αν δεν επιλέξετε, θα επιλεγούν θέματα κατάλληλα για το επίπεδο.",
+  commonMistake: "Συχνό λάθος",
+  clear: "Καθαρισμός",
 };
 
 const ru: Dict = {
@@ -223,6 +233,11 @@ const ru: Dict = {
   published: "Опубликовано",
   source: "Источник",
   cards: "Слова и фразы",
+  grammar: "Грамматика",
+  grammarTopics: "Грамматические темы (до 3)",
+  grammarAuto: "Если ничего не выбрать, темы подберутся под уровень.",
+  commonMistake: "Типичная ошибка",
+  clear: "Очистить",
 };
 
 export const builtinDicts: Record<string, Dict> = { el, ru, en: en as Dict };

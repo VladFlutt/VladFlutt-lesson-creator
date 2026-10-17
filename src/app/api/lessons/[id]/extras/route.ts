@@ -33,6 +33,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         query: c.newsQuery || lesson.theme,
         theme: lesson.theme,
         languageName: lang?.name || "Greek",
+        languageCode: lesson.language_code,
         interfaceName: ui?.name || "Greek",
       });
       value = articles;

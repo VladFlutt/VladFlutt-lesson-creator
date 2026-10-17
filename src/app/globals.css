@@ -61,6 +61,14 @@ textarea { min-height: 90px; resize: vertical; }
 .check { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); cursor: pointer; font-weight: 600; font-size: 0.92rem; }
 .check input { width: auto; margin: 0; accent-color: var(--green); }
 .check.on { background: var(--green-soft); border-color: var(--green); }
+.check.disabled { opacity: 0.5; cursor: not-allowed; }
+.level-tag { font-size: 0.72rem; font-weight: 700; color: var(--blue); background: var(--blue-soft); border-radius: 6px; padding: 1px 6px; }
+.grammar-forms { border-collapse: collapse; margin: 8px 0 12px; }
+.grammar-forms td { border-bottom: 1px solid var(--border); padding: 6px 12px 6px 0; vertical-align: top; }
+.grammar-forms td:first-child { font-weight: 700; white-space: nowrap; }
+.mistake { background: var(--red-soft); border-radius: 10px; padding: 8px 12px; margin-top: 8px; }
+.word-chip { border: 1px dashed var(--blue); background: var(--blue-soft); border-radius: 8px; padding: 5px 11px; cursor: pointer; font: inherit; }
+.word-chip:disabled { opacity: 0.35; cursor: default; }
 
 .btn { font: inherit; font-weight: 700; border: 0; border-radius: 10px; padding: 10px 18px; cursor: pointer; background: var(--blue); color: #fff; display: inline-flex; align-items: center; gap: 8px; }
 .btn:hover { filter: brightness(1.05); }

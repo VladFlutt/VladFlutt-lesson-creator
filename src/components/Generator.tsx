@@ -8,12 +8,15 @@ import { useUi } from "./UiProvider";
 
 type Option = { code: string; label: string };
 type Inst = { key: string; label: string; description: string; default_on: boolean };
+type Grammar = { id: string; language_code: string; level: string | null; label: string };
+const MAX_GRAMMAR = 3;
 
 export function Generator(props: {
   languages: Option[];
   levels: Option[];
   durations: number[];
   instruments: Inst[];
+  grammar: Grammar[];
   guestRemaining: number | null;
   guestLimit: number;
   signedIn: boolean;
@@ -25,6 +28,7 @@ export function Generator(props: {
   const [level, setLevel] = useState(props.levels[0]?.code || "A1");
   const [duration, setDuration] = useState(props.durations.includes(60) ? 60 : props.durations[0]);
   const [picked, setPicked] = useState<string[]>(props.instruments.filter((i) => i.default_on).map((i) => i.key));
+  const [grammar, setGrammar] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lesson, setLesson] = useState<LessonRow | null>(null);
@@ -32,6 +36,9 @@ export function Generator(props: {
 
   const names = Object.fromEntries(props.instruments.map((i) => [i.key, i.label]));
   const toggle = (k: string) => setPicked((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
+  const topics = props.grammar.filter((g) => g.language_code === languageCode);
+  const toggleGrammar = (id: string) =>
+    setGrammar((g) => (g.includes(id) ? g.filter((x) => x !== id) : g.length < MAX_GRAMMAR ? [...g, id] : g));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -42,7 +49,7 @@ export function Generator(props: {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ languageCode, theme, level, duration, instruments: picked }),
+        body: JSON.stringify({ languageCode, theme, level, duration, instruments: picked, grammar: picked.includes("grammar") ? grammar : [] }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -82,7 +89,7 @@ export function Generator(props: {
         <div className="grid" style={{ marginTop: 14 }}>
           <label className="field">
             {dict.lessonLanguage}
-            <select value={languageCode} onChange={(e) => setLanguageCode(e.target.value)}>
+            <select value={languageCode} onChange={(e) => { setLanguageCode(e.target.value); setGrammar([]); }}>
               {props.languages.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
             </select>
           </label>
@@ -114,6 +121,25 @@ export function Generator(props: {
             ))}
           </div>
         </div>
+        {picked.includes("grammar") && topics.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <div className="field" style={{ marginBottom: 4 }}>{dict.grammarTopics}</div>
+            <p className="muted small" style={{ margin: "0 0 8px" }}>{dict.grammarAuto}</p>
+            <div className="checks">
+              {topics.map((g) => {
+                const on = grammar.includes(g.id);
+                const full = !on && grammar.length >= MAX_GRAMMAR;
+                return (
+                  <label key={g.id} className={`check ${on ? "on" : ""} ${full ? "disabled" : ""}`}>
+                    <input type="checkbox" checked={on} disabled={full} onChange={() => toggleGrammar(g.id)} />
+                    {g.level && <span className="level-tag">{g.level}</span>}
+                    {g.label}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {error && <div className="error">{error}</div>}
         <div className="row" style={{ marginTop: 18 }}>
           <button className="btn green" disabled={loading || !theme.trim() || !picked.length || guestLeft === 0}>

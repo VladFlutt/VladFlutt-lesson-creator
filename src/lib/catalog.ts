@@ -27,6 +27,15 @@ export type Instrument = {
   sort: number;
 };
 
+export type GrammarItem = {
+  id: string;
+  language_code: string;
+  level: string | null;
+  name: Record<string, string>;
+  status: string;
+  sort: number;
+};
+
 export async function loadCatalog(includeBlocked = false) {
   const sb = supabaseAdmin();
   const q = <T,>(table: string, order: string) => {
@@ -34,13 +43,14 @@ export async function loadCatalog(includeBlocked = false) {
     if (!includeBlocked) query = query.eq("status", "active");
     return query.then(({ data }) => (data || []) as T[]);
   };
-  const [languages, levels, durations, instruments] = await Promise.all([
+  const [languages, levels, durations, instruments, grammar] = await Promise.all([
     q<Language>("languages", "sort"),
     q<Level>("levels", "sort"),
     q<Duration>("durations", "minutes"),
     q<Instrument>("instruments", "sort"),
+    q<GrammarItem>("grammar_topics", "sort"),
   ]);
-  return { languages, levels, durations, instruments };
+  return { languages, levels, durations, instruments, grammar };
 }
 
 export async function getSettings(): Promise<Record<string, number | null>> {
@@ -57,6 +67,12 @@ export async function getUi(languages: Language[]): Promise<{ code: string; dict
   const lang = languages.find((l) => l.code === wanted) || languages.find((l) => l.code === "el");
   const code = lang?.code || "el";
   return { code, dict: resolveDict(code, lang?.ui_strings) };
+}
+
+// Names a grammar topic for the prompt: English plus the lesson language's own term.
+export function grammarLabel(g: GrammarItem) {
+  const native = g.name[g.language_code];
+  return native && native !== g.name.en ? `${g.name.en || native} (${native})` : g.name.en || native || "";
 }
 
 export function instrumentName(i: Instrument, ui: string) {

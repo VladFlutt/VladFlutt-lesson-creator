@@ -1,5 +1,5 @@
 import { getViewer, supabaseAdmin } from "@/lib/supabase-server";
-import { loadCatalog, getUi } from "@/lib/catalog";
+import { loadCatalog, getUi, grammarLabel } from "@/lib/catalog";
 import { checkQuota, findRestrictedWord, ipHash, recordGeneration } from "@/lib/usage";
 import { configError, guestIdFromCookie, json } from "@/lib/access";
 import { generateJson } from "@/lib/ai";
@@ -16,6 +16,7 @@ export async function POST(req: Request) {
   const level = String(body.level || "");
   const duration = Number(body.duration);
   const wanted: string[] = Array.isArray(body.instruments) ? body.instruments.map(String) : [];
+  const grammarIds: string[] = Array.isArray(body.grammar) ? body.grammar.map(String) : [];
   if (!theme) return json({ error: "theme" }, 400);
 
   const viewer = await getViewer();
@@ -32,6 +33,16 @@ export async function POST(req: Request) {
   if (!catalog.durations.some((d) => d.minutes === duration)) return json({ error: "duration" }, 400);
   const instruments = catalog.instruments.filter((i) => wanted.includes(i.key));
   if (!instruments.length) return json({ error: "instruments" }, 400);
+
+  // Up to three grammar topics of the lesson language, only with the grammar block.
+  const wantsGrammar = instruments.some((i) => i.key === "grammar");
+  const grammarTopics = wantsGrammar
+    ? catalog.grammar.filter((g) => grammarIds.includes(g.id) && g.language_code === language.code)
+    : [];
+  if (grammarIds.length > 3 || (wantsGrammar && grammarTopics.length !== new Set(grammarIds).size)) {
+    return json({ error: "grammar" }, 400);
+  }
+  const grammarFocus = grammarTopics.map(grammarLabel);
 
   const restricted = await findRestrictedWord(theme);
   if (restricted) return json({ error: "restricted", word: restricted }, 400);
@@ -56,6 +67,7 @@ export async function POST(req: Request) {
         minutes: duration,
         blocks,
         custom,
+        grammarFocus,
       }),
       lessonSchema(blocks, custom.map((c) => c.key))
     );
@@ -70,7 +82,7 @@ export async function POST(req: Request) {
         level,
         duration,
         instruments: keys,
-        content,
+        content: grammarFocus.length ? { ...content, grammarFocus } : content,
       })
       .select("*")
       .single();

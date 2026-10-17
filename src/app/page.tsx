@@ -29,6 +29,12 @@ export default async function Home() {
         description: i.description,
         default_on: i.default_on,
       }))}
+      grammar={catalog.grammar.map((g) => ({
+        id: g.id,
+        language_code: g.language_code,
+        level: g.level,
+        label: g.name[ui.code] || g.name.en || Object.values(g.name)[0] || "",
+      }))}
       guestRemaining={guestRemaining}
       guestLimit={settings.guest_limit ?? 3}
       signedIn={!!viewer.user}

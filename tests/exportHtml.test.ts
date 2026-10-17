@@ -12,7 +12,13 @@ const content: LessonContent = {
   videoQuery: "",
   newsQuery: "",
   cards: [{ term: "ο καφές", translation: "кофе", example: "Θέλω καφέ.", exampleTranslation: "Я хочу кофе." }],
-  exercises: [{ type: "choice", prompt: "Pick", options: ["α", "β"], answer: "α", explanation: "" }],
+  grammar: {
+    topics: [{ title: "Αόριστος", explanation: "Прошедшее время", forms: [{ form: "γράφω → έγραψα", note: "писать" }], examples: [{ sentence: "Χθες έγραψα.", translation: "Вчера я написал." }], commonMistake: "Без приращения" }],
+  },
+  exercises: [
+    { type: "choice", prompt: "Pick", options: ["α", "β"], answer: "α", explanation: "" },
+    { type: "word_order", prompt: "Order", options: ["καφέ", "Θέλω"], answer: "Θέλω καφέ", explanation: "" },
+  ],
   dialogue: { setting: "Cafe", lines: [{ speaker: "Μαρία", text: "Γεια!", translation: "Привет!" }] },
   news: [{ title: "N", url: "https://news.gr/a?x=1&y=\"2\"", source: "S", published: "2026-10-10", summary: "" }],
 };
@@ -27,6 +33,13 @@ describe("lessonToHtml", () => {
     expect(out).not.toContain("<img src=x");
     expect(out).toContain("&lt;script&gt;");
     expect(out).toContain('href="https://news.gr/a?x=1&amp;y=&quot;2&quot;"');
+  });
+
+  it("prints the grammar block and word-order exercises", () => {
+    const out = html({ blocks: ["grammar", "exercises"] });
+    expect(out).toContain("γράφω → έγραψα");
+    expect(out).toContain(builtinDicts.ru.commonMistake);
+    expect(out).toContain("καφέ / Θέλω");
   });
 
   it("includes only the chosen blocks", () => {
