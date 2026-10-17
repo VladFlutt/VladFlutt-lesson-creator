@@ -174,13 +174,13 @@ insert into settings (key, value) values
 
 -- Atomic single-block update so parallel extras (image, news, video) don't overwrite each other.
 create function set_lesson_block(p_lesson uuid, p_block text, p_value jsonb) returns void
-language sql as $$
+language sql set search_path = public as $$
   update lessons set content = jsonb_set(content, array[p_block], p_value, true), updated_at = now()
   where id = p_lesson;
 $$;
 
 create function add_time_spent(p_user uuid, p_seconds int) returns void
-language sql as $$
+language sql set search_path = public as $$
   update profiles set time_spent_seconds = time_spent_seconds + greatest(0, least(p_seconds, 120)),
     last_seen_at = now()
   where id = p_user;
